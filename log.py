@@ -111,12 +111,12 @@ def get_logfile(bot, channel, timestamp):
 	try:
 		today = basepath + "today.log"
 		target = os.path.relpath(filename, basepath)
-		if not os.path.isfile(today) or os.readlink(path) != target:
-			if os.path.isfile(today):
+		if not os.path.islink(today) or os.readlink(today) != target:
+			if os.path.islink(today):
 				yesterday = basepath + "yesterday.log"
-				if os.path.isfile(yesterday):
+				if os.path.islink(yesterday):
 					os.remove(yesterday)
-					os.rename(today, yesterday)
+				os.rename(today, yesterday)
 			os.symlink(target, today)
 	except Exception as e:
 		bot.debug(__file__, u'Cant update symlinks for {0}: {1}'.format(filename, str(e)),
