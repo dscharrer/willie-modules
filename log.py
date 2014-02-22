@@ -90,7 +90,8 @@ def get_logfile(bot, channel, timestamp):
 		else:
 			logfile.handle.close()
 	
-	path = bot.config.log.path + '/' + channel[1:] + '/' + time.strftime('%Y', timestamp)
+	basepath = bot.config.log.path + '/' + channel[1:] + '/'
+	path = basepath + time.strftime('%Y', timestamp)
 	if not os.path.isdir(path):
 		try:
 			bot.debug(__file__, u'Creating log directory {0}'.format(path), 'verbose')
@@ -107,6 +108,20 @@ def get_logfile(bot, channel, timestamp):
 		logfile = codecs.open(filename, 'a', encoding='utf-8')
 	except Exception as e:
 		bot.debug(__file__, u'Cant open log file {0}'.format(filename), 'warning')
+	
+	try:
+		today = basepath + "today.log"
+		target = os.path.relpath(filename, basepath)
+		if not os.path.isfile(today) or os.readlink(path) != target:
+			if os.path.isfile(today):
+				yesterday = basepath + "yesterday.log"
+				if os.path.isfile(yesterday):
+					os.remove(yesterday)
+					os.rename(today, yesterday)
+			os.symlink(target, today)
+	except Exception as e:
+		bot.debug(__file__, u'Cant update symlinks for {0}: {1}'.format(filename, str(e)),
+			'warning')
 	
 	log_files[channel] = Logfile(date, logfile)
 	return logfile
