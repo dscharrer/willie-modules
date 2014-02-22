@@ -242,7 +242,6 @@ def setup(bot):
 	
 	names = bot.config.rss.get_list('feeds')
 	if not names:
-		defaults.validate_config()
 		feeds.append(defaults)
 	else:
 		for name in names:
@@ -255,11 +254,10 @@ def setup(bot):
 			feed.name = name
 			feed.parse_config(getattr(bot.config, section))
 			
-			feed.validate_config()
-			
 			feeds.append(feed)
 	
 	for feed in feeds:
+		feed.validate_config()
 		bot.debug(__file__, 'RSS Feed: {0} {1} {2}'.format(
 			feed.name, feed.url, feed.interval), DEBUG)
 	

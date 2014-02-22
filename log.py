@@ -8,13 +8,12 @@ This module implements a simple channel log
 """
 import time
 import os
+import codecs
+import threading
+from types import MethodType
 from willie.module import event, rule, priority
 from willie.tools import Nick
 from willie.config import ConfigurationError
-from types import MethodType
-import codecs
-import threading
-import os
 
 
 def configure(config):
@@ -144,7 +143,7 @@ def log(bot, channel, msg, *args):
 	if log_enable and channel not in log_enable:
 		return
 	# Apply blacklist, if present
-	for channel in log_exclude:
+	if channel in log_exclude:
 		return
 	
 	try:
