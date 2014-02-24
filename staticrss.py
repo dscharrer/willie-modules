@@ -29,6 +29,7 @@ socket.setdefaulttimeout(10)
 INTERVAL = 5 * 60 # seconds between checking for new updates
 MAX_ITEMS = 5
 DEBUG = 'verbose'
+MAX_LINE_LENGTH = 390
 
 
 class Feed:
@@ -115,17 +116,21 @@ class Feed:
 		title = item.title if 'title' in item else '';
 		if self.title_format:
 			title = self.title_pattern.sub(self.title_format, title)
-		message = title
 		
+		max_length = MAX_LINE_LENGTH
+		link = ''
 		if 'link' in item:
 			link = item.link
 			if self.link_format:
 				link = self.link_pattern.sub(self.link_format, link)
-			if link:
-				if message:
-					message += ' - '
-				message += link
+			if link and title:
+				link = ' - ' + link
+			max_length -= len(link)
 		
+		if title and len(title) > max_length:
+			title = title[:max_length - 2] + ' …'
+		
+		message = title + link
 		if message:
 			self.msg(bot, message)
 	
