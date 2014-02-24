@@ -71,7 +71,7 @@ class Pipe:
 			self.warn(u'{0} is blacklisted'.format(recipient))
 			return
 		
-		self.bot.msg(recipient, message)
+		self.bot.msg(recipient, message, 5)
 	
 	def run(self):
 		
