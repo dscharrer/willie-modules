@@ -8,6 +8,7 @@ This module implements a simple channel log
 """
 import time
 import os
+import re
 import codecs
 import threading
 from types import MethodType
@@ -240,16 +241,35 @@ def on_mode_change(bot, trigger):
 @rule(r'.*')
 @priority('low')
 def on_notice(bot, trigger):
-	(recipients, text) = trigger.args
+	recipients = trigger.args[0]
 	for channel in recipients.split(','):
 		if channel and channel[0] == '#':
-			log(bot, channel, '-{}- {}', trigger.nick, text)
+			log(bot, channel, '-{}- {}', trigger.nick, trigger)
+
+def is_ctcp(msg):
+	return msg.startswith('\x01') and msg.endswith('\x01') and len(msg) > 2
+
+def is_action(msg):
+	if is_ctcp(msg):
+		payload = msg[1:-1] # chop off \x01 on both ends
+		command = payload.split(None, 1)[0]
+		return command == 'ACTION'
+	else:
+		return False
+
+action_message_re = re.compile(r'^\x01ACTION\s+(.*)\x01$')
+def action_message(msg):
+	return action_message_re.match(msg).group(1)
 
 @rule(r'.*')
-@priority('low')
+@priority('high') # so it comes before messages that result from it
 def on_msg(bot, trigger):
 	"""Log a user sending a message to a channel."""
-	log(bot, trigger.sender, '<{}> {}', trigger.nick, trigger);
+	message = str(trigger)
+	if is_action(message):
+		log(bot, trigger.sender, '* {} {}', trigger.nick, action_message(message));
+	else:
+		log(bot, trigger.sender, '<{}> {}', trigger.nick, trigger);
 
 class FakeTrigger(unicode):
 	def __new__(cls, text, nick, sender):
@@ -260,17 +280,15 @@ class FakeTrigger(unicode):
 
 def filter(bot, args, text=None):
 	
-	if not args or args[0] != 'PRIVMSG':
+	if not args or len(args) < 2 or args[0] != 'PRIVMSG':
 		return
 	
+	args = [bot.safe(arg) for arg in args]
+	
 	if text is not None:
-		if len(args) < 2:
-			return
-		msg = text
+		msg = bot.safe(text)
 	else:
-		if len(args) < 3:
-			return
-		msg = args[2]
+		msg = u' '.join(args[2:]).lstrip()
 		if msg[0] == ':':
 			msg = msg[1:]
 	
