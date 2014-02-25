@@ -265,9 +265,8 @@ def action_message(msg):
 @priority('high') # so it comes before messages that result from it
 def on_msg(bot, trigger):
 	"""Log a user sending a message to a channel."""
-	message = str(trigger)
-	if is_action(message):
-		log(bot, trigger.sender, '* {} {}', trigger.nick, action_message(message));
+	if is_action(trigger):
+		log(bot, trigger.sender, '* {} {}', trigger.nick, action_message(trigger));
 	else:
 		log(bot, trigger.sender, '<{}> {}', trigger.nick, trigger);
 
