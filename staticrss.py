@@ -169,7 +169,7 @@ class Feed:
 		# Check for malformed XML
 		if fp.bozo:
 			bot.debug(__file__, 'Got malformed feed on {0}, disabling ({1})'.format(
-				self.name, fp.bozo_exception.getMessage()), 'warning')
+				self.name, str(fp.bozo_exception)), 'warning')
 			return self.disable()
 		
 		# Check HTTP status
