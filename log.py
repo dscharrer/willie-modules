@@ -137,7 +137,7 @@ def log(bot, channel, msg, *args):
 	channel = channel.lower()
 	
 	# Ignore unknown channels
-	if not channel in bot.privileges:
+	if not channel in bot.privileges and not channel in bot.channels:
 		return
 	
 	# Apply whitelist, if present
