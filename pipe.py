@@ -11,6 +11,7 @@ Reads lines according to the following format:
 import os
 import codecs
 import threading
+import traceback
 from copy import copy
 from willie.config import ConfigurationError
 
@@ -79,7 +80,7 @@ class Pipe:
 			if not os.path.exists(self.file):
 				os.mkfifo(self.file)
 		except Exception as e:
-			self.warn(u'cant create pipe file {0}: {1}'.format(self.file, str(e)))
+			self.warn(u'cant create pipe file {0}: {1}'.format(self.file, traceback.format_exc(e)))
 			return
 		
 		while True:
@@ -87,7 +88,7 @@ class Pipe:
 			try:
 				handle = codecs.open(self.file, 'r', encoding='utf-8')
 			except Exception as e:
-				self.warn(u'cant open pipe file {0}: {1}'.format(self.file, str(e)))
+				self.warn(u'cant open pipe file {0}: {1}'.format(self.file, traceback.format_exc(e)))
 				handle.close()
 				return
 			
@@ -99,10 +100,10 @@ class Pipe:
 						if line:
 							self.process_line(line)
 					except Exception as e:
-						self.warn(u'bad line "{0}": {1}'.format(line, str(e)))
+						self.warn(u'bad line "{0}": {1}'.format(line, traceback.format_exc(e)))
 				
 			except Exception as e:
-				self.warn(u'error reading file {0}: {1}'.format(self.file, str(e)))
+				self.warn(u'error reading file {0}: {1}'.format(self.file, traceback.format_exc(e)))
 				
 			finally:
 				handle.close()
