@@ -173,7 +173,7 @@ def shutdown(bot):
 		bot.memory['logger'].close()
 		bot.memory['logger'] = None
 	except Exception as e:
-		bot.bot.debug(__file__, u'Error closing log: {0}'.format(traceback.format_exc(e)))
+		bot.bot.debug(__file__, u'Error closing log: {0}'.format(traceback.format_exc(e)), 'warning')
 
 # Write a message to the text log file
 def log(bot, channel, msg, *args):
