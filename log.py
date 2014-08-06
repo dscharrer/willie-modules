@@ -11,6 +11,7 @@ import os
 import re
 import codecs
 import threading
+import traceback
 from types import MethodType
 from willie.module import event, rule, priority
 from willie.tools import Nick
@@ -167,9 +168,12 @@ def setup(bot):
 	bot.memory['logger_restore_write'] = write
 
 def shutdown(bot):
-	setattr(bot, 'write', bot.memory['logger_restore_write'])
-	bot.memory['logger'].close()
-	bot.memory['logger'] = None
+	try:
+		setattr(bot, 'write', bot.memory['logger_restore_write'])
+		bot.memory['logger'].close()
+		bot.memory['logger'] = None
+	except Exception as e:
+		bot.bot.debug(__file__, u'Error closing log: {0}'.format(traceback.format_exc(e)))
 
 # Write a message to the text log file
 def log(bot, channel, msg, *args):
