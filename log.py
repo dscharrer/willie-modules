@@ -36,10 +36,109 @@ def add_filter(bot, method):
 		return method(*args, **kwargs)
 	return MethodType(filtered_write, bot, type(bot))
 
-log_exclude = set()
-log_enable = set()
-log_files = { }
-log_lock = None
+class Logfile:
+	def __init__(self, date, handle):
+		self.date = date
+		self.handle = handle
+
+class Logger:
+	
+	def __init__(self, exclude, enable):
+		self.exclude = exclude
+		self.enable = enable
+		self.files = { }
+		self.lock = threading.Lock()
+	
+	def get_logfile(self, bot, channel, timestamp):
+		
+		date = time.strftime('%Y-%m-%d', timestamp)
+		
+		if channel in self.files:
+			logfile = self.files[channel]
+			if logfile.date == date:
+				return logfile.handle
+			else:
+				logfile.handle.close()
+		
+		basepath = bot.config.log.path + '/' + channel[1:] + '/'
+		path = basepath + time.strftime('%Y', timestamp)
+		if not os.path.isdir(path):
+			try:
+				bot.debug(__file__, u'Creating log directory {0}'.format(path), 'verbose')
+				os.makedirs(path)
+			except Exception as e:
+				bot.debug(__file__, u'Cant create log directory {0}'.format(path), 'warning')
+				self.exclude.append(channel)
+				return
+		
+		filename = path + '/' + channel + '.' + date + '.log'
+		logfile = None
+		try:
+			bot.debug(__file__, u'Opening log file {0}'.format(filename), 'verbose')
+			logfile = codecs.open(filename, 'a', encoding='utf-8')
+		except Exception as e:
+			bot.debug(__file__, u'Cant open log file {0}'.format(filename), 'warning')
+		
+		try:
+			today = basepath + "today.log"
+			target = os.path.relpath(filename, basepath)
+			if not os.path.islink(today) or os.readlink(today) != target:
+				if os.path.islink(today):
+					yesterday = basepath + "yesterday.log"
+					if os.path.islink(yesterday):
+						os.remove(yesterday)
+					os.rename(today, yesterday)
+				os.symlink(target, today)
+		except Exception as e:
+			bot.debug(__file__, u'Cant update symlinks for {0}: {1}'.format(filename, str(e)),
+				'warning')
+		
+		self.files[channel] = Logfile(date, logfile)
+		return logfile
+	
+	# Write a message to the text log file
+	def log(self, bot, channel, msg, *args):
+		
+		# Ignore messages to users
+		if channel[0] != '#':
+			return
+		
+		# Normalize channel
+		channel = channel.lower()
+		
+		# Ignore unknown channels
+		if not channel in bot.privileges and not channel in bot.channels:
+			return
+		
+		# Apply whitelist, if present
+		if self.enable and channel not in self.enable:
+			return
+		# Apply blacklist, if present
+		if channel in self.exclude:
+			return
+		
+		try:
+			self.lock.acquire()
+			
+			timestamp = time.gmtime()
+			
+			logfile = self.get_logfile(bot, channel, timestamp)
+			if not logfile:
+				return
+			
+			msg = unicode(msg).format(*args)
+			msg = time.strftime('[%Y-%m-%d] %H:%M:%S  ', timestamp) + msg
+			msg = msg + '\n'
+			logfile.write(msg)
+			logfile.flush()
+			
+		finally:
+			self.lock.release()
+	
+	def close(self):
+		for logfile in self.files:
+			logfile.handle.close()
+		self.files = { }
 
 def setup(bot):
 	
@@ -48,10 +147,8 @@ def setup(bot):
 	if not bot.config.has_section('log'):
 		raise ConfigurationError('missing log config section')
 	
-	global log_exclude
-	log_exclude = set(bot.config.log.get_list('exclude'))
-	global log_enable
-	log_enable = set(bot.config.log.get_list('enable'))
+	exclude = set(bot.config.log.get_list('exclude'))
+	enable = set(bot.config.log.get_list('enable'))
 	
 	if not bot.config.log.path:
 		raise ConfigurationError('missing path in log config section')
@@ -62,108 +159,23 @@ def setup(bot):
 		except Exception as e:
 			raise
 	
-	global log_lock
-	log_lock = threading.Lock()
-	
 	# TODO: Evil hack - because Willie doesn't support outgoing message filters, inject our own
-	setattr(bot, 'write', add_filter(bot, getattr(bot, 'write')))
+	write = getattr(bot, 'write');
+	setattr(bot, 'write', add_filter(bot, write))
+	
+	bot.memory['logger'] = Logger(exclude, enable)
+	bot.memory['logger_restore_write'] = write
 
 def shutdown(bot):
-	global log_files
-	for logfile in log_files:
-		logfile.handle.close()
-	log_files = { }
-
-class Logfile:
-	def __init__(self, date, handle):
-		self.date = date
-		self.handle = handle
-
-def get_logfile(bot, channel, timestamp):
-	
-	date = time.strftime('%Y-%m-%d', timestamp)
-	
-	if channel in log_files:
-		logfile = log_files[channel]
-		if logfile.date == date:
-			return logfile.handle
-		else:
-			logfile.handle.close()
-	
-	basepath = bot.config.log.path + '/' + channel[1:] + '/'
-	path = basepath + time.strftime('%Y', timestamp)
-	if not os.path.isdir(path):
-		try:
-			bot.debug(__file__, u'Creating log directory {0}'.format(path), 'verbose')
-			os.makedirs(path)
-		except Exception as e:
-			bot.debug(__file__, u'Cant create log directory {0}'.format(path), 'warning')
-			log_exclude.append(channel)
-			return
-	
-	filename = path + '/' + channel + '.' + date + '.log'
-	logfile = None
-	try:
-		bot.debug(__file__, u'Opening log file {0}'.format(filename), 'verbose')
-		logfile = codecs.open(filename, 'a', encoding='utf-8')
-	except Exception as e:
-		bot.debug(__file__, u'Cant open log file {0}'.format(filename), 'warning')
-	
-	try:
-		today = basepath + "today.log"
-		target = os.path.relpath(filename, basepath)
-		if not os.path.islink(today) or os.readlink(today) != target:
-			if os.path.islink(today):
-				yesterday = basepath + "yesterday.log"
-				if os.path.islink(yesterday):
-					os.remove(yesterday)
-				os.rename(today, yesterday)
-			os.symlink(target, today)
-	except Exception as e:
-		bot.debug(__file__, u'Cant update symlinks for {0}: {1}'.format(filename, str(e)),
-			'warning')
-	
-	log_files[channel] = Logfile(date, logfile)
-	return logfile
+	setattr(bot, 'write', bot.memory['logger_restore_write'])
+	bot.memory['logger'].close()
+	bot.memory['logger'] = None
 
 # Write a message to the text log file
 def log(bot, channel, msg, *args):
-	
-	# Ignore messages to users
-	if channel[0] != '#':
-		return
-	
-	# Normalize channel
-	channel = channel.lower()
-	
-	# Ignore unknown channels
-	if not channel in bot.privileges and not channel in bot.channels:
-		return
-	
-	# Apply whitelist, if present
-	if log_enable and channel not in log_enable:
-		return
-	# Apply blacklist, if present
-	if channel in log_exclude:
-		return
-	
-	try:
-		log_lock.acquire()
-		
-		timestamp = time.gmtime()
-		
-		logfile = get_logfile(bot, channel, timestamp)
-		if not logfile:
-			return
-		
-		msg = unicode(msg).format(*args)
-		msg = time.strftime('[%Y-%m-%d] %H:%M:%S  ', timestamp) + msg
-		msg = msg + '\n'
-		logfile.write(msg)
-		logfile.flush()
-		
-	finally:
-		log_lock.release()
+	logger = bot.memory['logger']
+	if logger is not None:
+		logger.log(bot, channel, msg, *args)
 
 @event('JOIN')
 @rule(r'.*')
