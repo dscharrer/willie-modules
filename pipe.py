@@ -100,6 +100,7 @@ class Pipe:
 						if line:
 							self.process_line(line)
 					except Exception as e:
+						line = "".join(i if ord(i) < 128 else '?' for i in s)
 						self.warn(u'bad line "{0}": {1}'.format(line, traceback.format_exc(e)))
 				
 			except Exception as e:
