@@ -29,6 +29,7 @@ class Pipe:
 		self.exclude = set()
 		self.enable = set()
 		self.thread = None
+		self.running = True
 	
 	
 	def parse_config(self, section):
@@ -83,7 +84,7 @@ class Pipe:
 			self.warn(u'cant create pipe file {0}: {1}'.format(self.file, traceback.format_exc(e)))
 			return
 		
-		while True:
+		while self.running:
 			
 			try:
 				handle = codecs.open(self.file, 'r', encoding='utf-8')
@@ -116,6 +117,13 @@ class Pipe:
 		self.thread = threading.Thread(target=self.run)
 		self.thread.daemon = True
 		self.thread.start()
+	
+	def stop(self):
+		# Signal the thread to exit
+		self.running = False
+		open(self.file, 'w').close()
+		# Wait for the thread to exit
+		self.thread.join()
 
 
 def setup(bot):
@@ -148,4 +156,13 @@ def setup(bot):
 		pipe.validate_config()
 		pipe.start()
 		bot.debug(__file__, 'Pipe {0}: {1}'.format(pipe.name, pipe.file), DEBUG)
+	
+	bot.memory['pipes'] = pipes
 
+
+def shutdown(bot):
+	
+	for pipe in bot.memory['pipes']:
+		pipe.stop()
+	
+	bot.memory['pipes'] = None
