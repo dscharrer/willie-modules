@@ -137,8 +137,8 @@ class Logger:
 			self.lock.release()
 	
 	def close(self):
-		for logfile in self.files:
-			logfile.handle.close()
+		for channel in self.files:
+			self.files[channel].handle.close()
 		self.files = { }
 
 def setup(bot):
