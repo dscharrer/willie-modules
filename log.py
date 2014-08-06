@@ -168,12 +168,9 @@ def setup(bot):
 	bot.memory['logger_restore_write'] = write
 
 def shutdown(bot):
-	try:
-		setattr(bot, 'write', bot.memory['logger_restore_write'])
-		bot.memory['logger'].close()
-		bot.memory['logger'] = None
-	except Exception as e:
-		bot.bot.debug(__file__, u'Error closing log: {0}'.format(traceback.format_exc(e)), 'warning')
+	setattr(bot, 'write', bot.memory['logger_restore_write'])
+	bot.memory['logger'].close()
+	bot.memory['logger'] = None
 
 # Write a message to the text log file
 def log(bot, channel, msg, *args):
