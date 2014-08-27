@@ -16,34 +16,49 @@ This is a modification of the standard Willie RSS module with the folloing chang
 from datetime import datetime
 import time
 import re
+import os
 import socket
 import threading
 import feedparser
+import urllib2
+import urlparse
+import traceback
+import codecs
 from copy import copy
 from willie.module import interval
 from willie.config import ConfigurationError
+from bs4 import BeautifulSoup
 
 
 socket.setdefaulttimeout(10)
 
 INTERVAL = 5 * 60 # seconds between checking for new updates
-MAX_ITEMS = 5
-DEBUG = 'verbose'
 MAX_LINE_LENGTH = 390
 
+class DefaultErrorHandler(urllib2.HTTPDefaultErrorHandler):
+	def http_error_default(self, req, fp, code, msg, headers):
+		result = urllib2.HTTPError(req.get_full_url(), code, msg, headers, fp)
+		result.status = code
+		return result
 
 class Feed:
 	
 	
 	def __init__(self):
+		self.debug = 'verbose'
+		self.max_items = 5
 		self.name = '(default)'
 		self.url = None
 		self.interval = 0
 		self.age = 0
+		self.soup = None
+		self.title_soup = None
 		self.title_pattern = re.compile(r'(.*)')
 		self.title_format = None
+		self.link_soup = None
 		self.link_pattern = re.compile(r'(.*)')
 		self.link_format = None
+		self.published_soup = None
 		self.exclude = set()
 		self.enable = set()
 		self.old_items = None
@@ -52,15 +67,26 @@ class Feed:
 		self.etag = None
 		self.modified = None
 		self.lock = threading.Lock()
+		self.state = None
 	
 	
 	def parse_config(self, section):
+		
+		if section.debug:
+			self.debug = section.debug
 		
 		if section.url:
 			self.url = section.url
 		
 		if section.interval:
 			self.interval = int(section.interval) * 60
+			self.age = self.interval + 1
+		
+		if section.soup:
+			self.soup = section.soup
+		
+		if section.title_soup:
+			self.title_soup = section.title_soup
 		
 		if section.title_pattern:
 			self.title_pattern = re.compile(section.title_pattern)
@@ -68,11 +94,17 @@ class Feed:
 		if section.title_format:
 			self.title_format = section.title_format
 		
+		if section.link_soup:
+			self.link_soup = section.link_soup
+		
 		if section.link_pattern:
 			self.link_pattern = re.compile(section.link_pattern)
 		
 		if section.link_format:
 			self.link_format = section.link_format
+		
+		if section.published_soup:
+			self.published_soup = section.published_soup
 		
 		exclude = section.get_list('exclude')
 		if exclude:
@@ -81,16 +113,60 @@ class Feed:
 		enable = section.get_list('enable')
 		if enable:
 			self.enable = set(enable)
+		
+		if section.state:
+			self.state = section.state
+		
+		if section.max_items:
+			self.max_items = int(section.max_items)
 	
 	
-	def validate_config(self):
+	def state_file(self):
+		return self.state + '/' + self.name
+	
+	
+	def load(self):
 		
 		if not self.url:
-			raise ConfigurationError('Missing rss url for feed {0}'.format(self.name))
+			raise ConfigurationError(u'Missing rss url for feed {0}'.format(self.name))
 		
 		if self.interval < 0:
 			raise ConfigurationError(
-				'Invalid rss update interval {0} for feed {1}'.format(self.interval, self.name))
+				u'Invalid rss update interval {0} for feed {1}'.format(self.interval, self.name))
+		
+		if self.soup and (not self.title_soup) and (not self.link_soup):
+			raise ConfigurationError(
+				u'soup requires title_soup and/or link_soup for feed {1}'.format(self.name))
+		
+		if os.path.exists(self.state_file()):
+			old_items = set()
+			handle = codecs.open(self.state_file(), 'r', encoding='utf-8')
+			try:
+				first = True
+				for line in handle:
+					line = line.rstrip()
+					if line:
+						if first:
+							first = False
+							self.old_time = float(line)
+						else:
+							old_items.add(unicode(line))
+				if not first:
+					self.old_items = old_items
+				
+			finally:
+				handle.close()
+	
+	
+	def save(self):
+		if self.old_items is not None:
+			handle = codecs.open(self.state_file(), 'w', encoding='utf-8')
+			try:
+				handle.write(unicode(self.old_time) + u'\n')
+				for guid in self.old_items:
+					handle.write(guid + u'\n')
+			finally:
+				handle.close()
 	
 	
 	def disable(self):
@@ -138,14 +214,82 @@ class Feed:
 	@staticmethod
 	def guid(item):
 		if 'guid' in item:
-			return item.guid
+			return unicode(item.guid.strip().replace('\n',' '))
 		guid = ''
+		if 'title' in item:
+			guid = item.title;
 		if 'link' in item:
-			guid += item.link + '#'
+			guid = item.link;
 		if 'published' in item:
-			guid += item.published
-		return guid
+			guid += '#' + item.published
+		return unicode(guid.strip().replace('\n',' '))
 	
+	def update_feed(self, bot):
+		
+		fp = feedparser.parse(self.url, etag=self.etag, modified=self.modified)
+		
+		# Check for malformed XML
+		if fp.bozo and not isinstance(fp.bozo_exception, feedparser.CharacterEncodingOverride):
+			raise fp.bozo_exception
+		
+		# Check HTTP status
+		if getattr(fp, 'status', 200) == 410: # GONE
+			raise urllib2.HTTPError(self.url, 410, 'Gone.', { }, fp)
+		
+		return fp
+	
+	def update_soup(self, bot):
+		
+		request = urllib2.Request(self.url)
+		
+		if self.etag:
+			request.add_header('If-None-Match', self.etag)
+		
+		if self.modified:
+			request.add_header('If-Modified-Since', self.modified)
+		
+		opener = urllib2.build_opener(DefaultErrorHandler()) 
+		
+		fp = opener.open(request)
+		
+		setattr(fp, 'entries', None)
+		
+		if hasattr(fp, 'status'):
+			if fp.status == 304 or fp.status == 301:
+				return
+			if fp.status != 200:
+				raise fp
+		
+		page = BeautifulSoup(fp.read())
+		
+		entries = [ ]
+		
+		for post in eval(self.soup, {}, {"page" : page}):
+			
+			entry = feedparser.FeedParserDict()
+			
+			if self.title_soup:
+				entry['title'] = eval(self.title_soup, {}, {"post" : post}).get_text().strip()
+			
+			if self.link_soup:
+				entry['link'] = urlparse.urljoin(self.url, eval(self.link_soup, {}, {"post" : post}))
+			
+			if self.published_soup:
+				entry['published'] = eval(self.published_soup, {}, {"post" : post}).get_text().strip()
+			
+			entries.append(entry)
+		
+		setattr(fp, 'entries', entries)
+		
+		etag = fp.headers.get('ETag')
+		if etag:
+			setattr(fp, 'etag', etag)
+		
+		modified = fp.headers.get('Last-Modified')
+		if modified:
+			setattr(fp, 'modified', modified)
+		
+		return fp
 	
 	def update(self, bot, elapsed_seconds):
 		
@@ -157,77 +301,80 @@ class Feed:
 		
 		# Download feed snapshot
 		try:
-			fp = feedparser.parse(self.url, etag=self.etag, modified=self.modified)
-		except IOError as e:
-			bot.debug(__file__, 'Can\'t parse feed on {0}, disabling ({1})'.format(
+			if self.soup:
+				fp = self.update_soup(bot)
+			else:
+				fp = self.update_feed(bot)
+		except urllib2.HTTPError as e:
+			bot.debug(__file__, u'Can\'t parse feed on {0}, disabling ({1})'.format(
 				self.name, str(e)), 'warning')
+			return self.disable()
+		except IOError as e:
+			bot.debug(__file__, u'Can\'t parse feed on {0}, disabling ({1})'.format(
+				self.name, str(e)), 'warning')
+			return self.disable()
+		except Exception as e:
+			bot.debug(__file__, u'Can\'t parse feed on {0}, disabling: {1}'.format(
+				self.name, traceback.format_exc(e)), 'warning')
 			return self.disable()
 		
 		# fp.status will only exist if pulling from an online feed
 		status = getattr(fp, 'status', None)
 		
-		# Check for malformed XML
-		if fp.bozo:
-			bot.debug(__file__, 'Got malformed feed on {0}, disabling ({1})'.format(
-				self.name, str(fp.bozo_exception)), 'warning')
-			return self.disable()
+		self.backoff = 0
 		
 		# Check HTTP status
-		if status == 301: # MOVED_PERMANENTLY
+		if status == 301 and hasattr(fp, 'href'): # MOVED_PERMANENTLY
 			bot.debug(__file__,
-				'Got HTTP 301 (Moved Permanently) on {0}, updating URI to {1}'.format(
+				u'Got HTTP 301 (Moved Permanently) on {0}, updating URI to {1}'.format(
 				self.name, fp.href), 'warning')
 			self.url = fp.href
-		if status == 410: # GONE
-			bot.debug(__file__, 'Got HTTP 410 (Gone) on {0}, disabling'.format(
-				self.name), 'warning')
-			return self.disable()
 		if status == 304: # NOT MODIFIED
-			bot.debug(__file__, 'Got HTTP 304 (Not Modified) on {0}'.format(self.name), DEBUG)
+			bot.debug(__file__, u'Got HTTP 304 (Not Modified) on {0}'.format(self.name),
+				self.debug)
 			return
 		
 		# Check if anything changed
 		new_etag = fp.etag if hasattr(fp, 'etag') else None
 		if new_etag is not None and new_etag == self.etag:
-			bot.debug(__file__, 'Same ETAG: {0} "{1}"'.format(self.name, new_etag), DEBUG)
+			bot.debug(__file__, u'Same ETAG: {0} "{1}"'.format(self.name, new_etag), self.debug)
 			return
 		new_modified = fp.modified if hasattr(fp, 'modified') else None
 		if new_modified is not None and new_modified == self.modified:
-			bot.debug(__file__, 'Same modification time: {0} {1}'.format(
-				self.name, new_modified), DEBUG)
+			bot.debug(__file__, u'Same modification time: {0} {1}'.format(
+				self.name, new_modified), self.debug)
 			return
 		
 		bot.debug(__file__,
-			'{0}: status = {1}, version = {2}, items = {3}, etag = "{4}", time = {5}'.format(
-			self.name, status, fp.version, len(fp.entries), new_etag, new_modified), DEBUG)
-		self.backoff = 0
+			u'{0}: status = {1}, items = {2}, etag = {3}, time = {4}'.format(
+			self.name, status, len(fp.entries), new_etag, new_modified), self.debug)
 		
 		# Check for new items
 		if fp.entries and self.old_items is not None:
-			skipped = -MAX_ITEMS
+			skipped = -self.max_items
 			for item in reversed(fp.entries):
 				if self.guid(item) in self.old_items:
 					continue
-				if 'published' in item:
+				if 'published_parsed' in item:
 					new_time = time.mktime(item.published_parsed)
 					if new_time <= self.old_time:
-						bot.debug(__file__, 'Old ptime: {0}: {1} <= {2} "{3}"'.format(
+						bot.debug(__file__, u'Old ptime: {0}: {1} <= {2} "{3}"'.format(
 							self.name, new_time, self.old_time, self.guid(item)), 'warning')
 						continue
 				if skipped < 0:
 					self.new_item(bot, item)
 				skipped += 1
 			if skipped == 1:
-				self.msg(bot, '(and one more item)')
+				self.msg(bot, u'(and one more item)')
 			elif skipped > 0:
-				self.msg(bot, '(and {0} more items)'.format(skipped))
+				self.msg(bot, u'(and {0} more items)'.format(skipped))
 		
 		# Update the known items list
 		if fp.entries or self.old_items is None:
 			self.old_items = set()
 			for item in reversed(fp.entries):
 				self.old_items.add(self.guid(item))
-			if fp.entries and 'published' in fp.entries[0]:
+			if fp.entries and 'published_parsed' in fp.entries[0]:
 				self.old_time = max(self.old_time, time.mktime(fp.entries[0].published_parsed))
 		
 		# Update the last update time
@@ -238,7 +385,7 @@ class Feed:
 def setup(bot):
 	
 	if not bot.config.has_section('rss'):
-		raise ConfigurationError('Missing rss config section')
+		raise ConfigurationError(u'Missing rss config section')
 	
 	defaults = Feed()
 	defaults.parse_config(bot.config.rss)
@@ -253,7 +400,7 @@ def setup(bot):
 			
 			section = 'rss_' + name
 			if not bot.config.has_section(section):
-				raise ConfigurationError('Missing rss config section for feed {0}'.format(name))
+				raise ConfigurationError(u'Missing rss config section for feed {0}'.format(name))
 			
 			feed = copy(defaults)
 			feed.name = name
@@ -262,9 +409,11 @@ def setup(bot):
 			feeds.append(feed)
 	
 	for feed in feeds:
-		feed.validate_config()
-		bot.debug(__file__, 'RSS Feed: {0} {1} {2}'.format(
-			feed.name, feed.url, feed.interval), DEBUG)
+		feed.load()
+		bot.debug(__file__, u'RSS Feed: {0} {1} @{2} #={3} >={4}'.format(
+			feed.name, feed.url, feed.interval,
+			len(feed.old_items) if feed.old_items is not None else None, feed.old_time),
+			feed.debug)
 	
 	bot.memory['staticrss'] = feeds
 
@@ -278,3 +427,15 @@ def update_feeds(bot):
 		finally:
 			feed.lock.release()
 
+
+def shutdown(bot):
+	
+	for feed in bot.memory['staticrss']:
+		try:
+			feed.lock.acquire()
+			feed.save()
+		except Exception as e:
+			bot.debug(__file__, 'Can\'t save satate for feed {0}: {1}'.format(
+				feed.name, traceback.format_exc(e)), 'warning')
+		finally:
+			feed.lock.release()
