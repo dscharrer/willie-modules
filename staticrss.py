@@ -242,7 +242,7 @@ class Feed:
 		
 		request = urllib2.Request(self.url)
 		
-		if self.etag:
+		if self.etag and not self.modified:
 			request.add_header('If-None-Match', self.etag)
 		
 		if self.modified:
