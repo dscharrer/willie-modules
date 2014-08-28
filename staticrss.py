@@ -306,15 +306,15 @@ class Feed:
 			else:
 				fp = self.update_feed(bot)
 		except urllib2.HTTPError as e:
-			bot.debug(__file__, u'Can\'t parse feed on {0}, disabling ({1})'.format(
+			bot.debug(__file__, u'{0}: Can\'t parse feed, disabling ({1})'.format(
 				self.name, str(e)), 'warning')
 			return self.disable()
 		except IOError as e:
-			bot.debug(__file__, u'Can\'t parse feed on {0}, disabling ({1})'.format(
+			bot.debug(__file__, u'{0}: Can\'t parse feed, disabling ({1})'.format(
 				self.name, str(e)), 'warning')
 			return self.disable()
 		except Exception as e:
-			bot.debug(__file__, u'Can\'t parse feed on {0}, disabling: {1}'.format(
+			bot.debug(__file__, u'{0}: Can\'t parse feed, disabling: {1}'.format(
 				self.name, traceback.format_exc(e)), 'warning')
 			return self.disable()
 		
@@ -326,22 +326,22 @@ class Feed:
 		# Check HTTP status
 		if status == 301 and hasattr(fp, 'href'): # MOVED_PERMANENTLY
 			bot.debug(__file__,
-				u'Got HTTP 301 (Moved Permanently) on {0}, updating URI to {1}'.format(
+				u'{0}: Got HTTP 301 (Moved Permanently), updating URI to {1}'.format(
 				self.name, fp.href), 'warning')
 			self.url = fp.href
 		if status == 304: # NOT MODIFIED
-			bot.debug(__file__, u'Got HTTP 304 (Not Modified) on {0}'.format(self.name),
+			bot.debug(__file__, u'{0}: Got HTTP 304 (Not Modified)'.format(self.name),
 				self.debug)
 			return
 		
 		# Check if anything changed
 		new_etag = fp.etag if hasattr(fp, 'etag') else None
 		if new_etag is not None and new_etag == self.etag:
-			bot.debug(__file__, u'Same ETAG: {0} "{1}"'.format(self.name, new_etag), self.debug)
+			bot.debug(__file__, u'{0}: Same etag: {1}'.format(self.name, new_etag), self.debug)
 			return
 		new_modified = fp.modified if hasattr(fp, 'modified') else None
 		if new_modified is not None and new_modified == self.modified:
-			bot.debug(__file__, u'Same modification time: {0} {1}'.format(
+			bot.debug(__file__, u'{0}: Same modification time: {1}'.format(
 				self.name, new_modified), self.debug)
 			return
 		
@@ -358,7 +358,7 @@ class Feed:
 				if 'published_parsed' in item:
 					new_time = time.mktime(item.published_parsed)
 					if new_time <= self.old_time:
-						bot.debug(__file__, u'Old ptime: {0}: {1} <= {2} "{3}"'.format(
+						bot.debug(__file__, u'{0}: Old ptime: {1} <= {2} "{3}"'.format(
 							self.name, new_time, self.old_time, self.guid(item)), 'warning')
 						continue
 				if skipped < 0:
@@ -410,7 +410,8 @@ def setup(bot):
 	
 	for feed in feeds:
 		feed.load()
-		bot.debug(__file__, u'RSS Feed: {0} {1} @{2} #={3} >={4}'.format(
+		bot.debug(__file__, u'{0}: {1} {2} @{3} #={4} >={5}'.format(
+			u'Soup' if feed.soup else u'Feed',
 			feed.name, feed.url, feed.interval,
 			len(feed.old_items) if feed.old_items is not None else None, feed.old_time),
 			feed.debug)
@@ -435,7 +436,7 @@ def shutdown(bot):
 			feed.lock.acquire()
 			feed.save()
 		except Exception as e:
-			bot.debug(__file__, 'Can\'t save satate for feed {0}: {1}'.format(
+			bot.debug(__file__, '{0}: Can\'t save feed state: {1}'.format(
 				feed.name, traceback.format_exc(e)), 'warning')
 		finally:
 			feed.lock.release()
