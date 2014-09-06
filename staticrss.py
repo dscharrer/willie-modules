@@ -367,6 +367,7 @@ class Feed:
 			for item in reversed(fp.entries):
 				if self.guid(item) in self.old_items:
 					continue
+				new_items = True
 				if 'published_parsed' in item:
 					new_time = time.mktime(item.published_parsed)
 					if new_time <= self.old_time:
@@ -374,7 +375,6 @@ class Feed:
 							self.name, new_time, self.old_time, self.guid(item)), 'warning')
 						continue
 				if skipped < 0:
-					new_items = True
 					if new_time <= self.old_time:
 						bot.debug(__file__, u'{0}: New item: "{3}"'.format(
 							self.name, self.guid(item)), self.debug)
