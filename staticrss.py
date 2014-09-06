@@ -364,6 +364,9 @@ class Feed:
 						continue
 				if skipped < 0:
 					new_items = True
+					if new_time <= self.old_time:
+						bot.debug(__file__, u'{0}: New item: "{3}"'.format(
+							self.name, self.guid(item)), self.debug)
 					self.new_item(bot, item)
 				skipped += 1
 			if skipped == 1:
