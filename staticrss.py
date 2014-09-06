@@ -28,11 +28,12 @@ from copy import copy
 from willie.module import interval
 from willie.config import ConfigurationError
 from bs4 import BeautifulSoup
+from collections import namedtuple
 
 
 socket.setdefaulttimeout(10)
 
-INTERVAL = 5 * 60 # seconds between checking for new updates
+INTERVAL = 60 # seconds between checking for new updates
 MAX_LINE_LENGTH = 390
 
 class DefaultErrorHandler(urllib2.HTTPDefaultErrorHandler):
@@ -66,7 +67,6 @@ class Feed:
 		self.backoff = 0
 		self.etag = None
 		self.modified = None
-		self.lock = threading.Lock()
 		self.state = None
 	
 	
@@ -304,7 +304,7 @@ class Feed:
 		# Support per-feed update interval
 		self.age += elapsed_seconds
 		if self.age < self.interval + self.backoff:
-			return
+			return False
 		self.age = self.age % self.interval
 		
 		# Download feed snapshot
@@ -316,15 +316,18 @@ class Feed:
 		except urllib2.HTTPError as e:
 			bot.debug(__file__, u'{0}: Can\'t parse feed, disabling ({1})'.format(
 				self.name, str(e)), 'warning')
-			return self.disable()
+			self.disable()
+			return True
 		except IOError as e:
 			bot.debug(__file__, u'{0}: Can\'t parse feed, disabling ({1})'.format(
 				self.name, str(e)), 'warning')
-			return self.disable()
+			self.disable()
+			return True
 		except Exception as e:
 			bot.debug(__file__, u'{0}: Can\'t parse feed, disabling: {1}'.format(
 				self.name, traceback.format_exc(e)), 'warning')
-			return self.disable()
+			self.disable()
+			return True
 		
 		# fp.status will only exist if pulling from an online feed
 		status = getattr(fp, 'status', None)
@@ -340,18 +343,18 @@ class Feed:
 		if status == 304: # NOT MODIFIED
 			bot.debug(__file__, u'{0}: Got HTTP 304 (Not Modified)'.format(self.name),
 				self.debug)
-			return
+			return True
 		
 		# Check if anything changed
 		new_etag = fp.etag if hasattr(fp, 'etag') else None
 		if new_etag is not None and new_etag == self.etag:
 			bot.debug(__file__, u'{0}: Same etag: {1}'.format(self.name, new_etag), self.debug)
-			return
+			return True
 		new_modified = fp.modified if hasattr(fp, 'modified') else None
 		if new_modified is not None and new_modified == self.modified:
 			bot.debug(__file__, u'{0}: Same modification time: {1}'.format(
 				self.name, new_modified), self.debug)
-			return
+			return True
 		
 		bot.debug(__file__,
 			u'{0}: status = {1}, items = {2}, etag = {3}, time = {4}'.format(
@@ -394,6 +397,16 @@ class Feed:
 		# Update the last update time
 		self.etag = new_etag
 		self.modified = new_modified
+		
+		return True
+
+
+class Feeds:
+	
+	def __init__(self, feeds):
+		self.feeds = feeds
+		self.next = 0
+		self.lock = threading.Lock()
 
 
 def setup(bot):
@@ -430,27 +443,31 @@ def setup(bot):
 			len(feed.old_items) if feed.old_items is not None else None, feed.old_time),
 			feed.debug)
 	
-	bot.memory['staticrss'] = feeds
+	bot.memory['staticrss'] = Feeds(feeds)
 
 
 @interval(INTERVAL)
 def update_feeds(bot):
-	for feed in bot.memory['staticrss']:
-		try:
-			feed.lock.acquire()
-			feed.update(bot, INTERVAL)
-		finally:
-			feed.lock.release()
+	
+	data = bot.memory['staticrss']
+	
+	with data.lock:
+		
+		for i in [(i + data.next) % len(data.feeds) for i in range(len(data.feeds))]:
+			data.next = i  + 1
+			if data.feeds[i].update(bot, INTERVAL):
+				return
 
 
 def shutdown(bot):
 	
-	for feed in bot.memory['staticrss']:
-		try:
-			feed.lock.acquire()
-			feed.save()
-		except Exception as e:
-			bot.debug(__file__, '{0}: Can\'t save feed state: {1}'.format(
-				feed.name, traceback.format_exc(e)), 'warning')
-		finally:
-			feed.lock.release()
+	data = bot.memory['staticrss']
+	
+	with data.lock:
+		
+		for feed in data.feeds:
+			try:
+				feed.save()
+			except Exception as e:
+				bot.debug(__file__, '{0}: Can\'t save feed state: {1}'.format(
+					feed.name, traceback.format_exc(e)), 'warning')
