@@ -358,7 +358,7 @@ class Feed:
 			self.name, status, len(fp.entries), new_etag, new_modified), self.debug)
 		
 		# Check for new items
-		new_items = False
+		new_items = (self.old_items is None)
 		if fp.entries and self.old_items is not None:
 			skipped = -self.max_items
 			for item in reversed(fp.entries):
@@ -383,19 +383,17 @@ class Feed:
 				self.msg(bot, u'(and {0} more items)'.format(skipped))
 		
 		# Update the known items list
-		if new_items or self.old_items is None:
+		if new_items:
 			self.old_items = set()
 			for item in reversed(fp.entries):
 				self.old_items.add(self.guid(item))
 			if fp.entries and 'published_parsed' in fp.entries[0]:
 				self.old_time = max(self.old_time, time.mktime(fp.entries[0].published_parsed))
+			self.save()
 		
 		# Update the last update time
 		self.etag = new_etag
 		self.modified = new_modified
-		
-		if new_items:
-			self.save()
 
 
 def setup(bot):
