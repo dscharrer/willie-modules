@@ -33,7 +33,7 @@ from collections import namedtuple
 
 socket.setdefaulttimeout(10)
 
-INTERVAL = 60 # seconds between checking for new updates
+INTERVAL = 30 # seconds between checking for new updates
 MAX_LINE_LENGTH = 390
 
 class DefaultErrorHandler(urllib2.HTTPDefaultErrorHandler):
