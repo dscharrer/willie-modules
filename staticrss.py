@@ -350,6 +350,7 @@ class Feed:
 			self.name, status, len(fp.entries), new_etag, new_modified), self.debug)
 		
 		# Check for new items
+		new_items = False
 		if fp.entries and self.old_items is not None:
 			skipped = -self.max_items
 			for item in reversed(fp.entries):
@@ -362,6 +363,7 @@ class Feed:
 							self.name, new_time, self.old_time, self.guid(item)), 'warning')
 						continue
 				if skipped < 0:
+					new_items = True
 					self.new_item(bot, item)
 				skipped += 1
 			if skipped == 1:
@@ -370,7 +372,7 @@ class Feed:
 				self.msg(bot, u'(and {0} more items)'.format(skipped))
 		
 		# Update the known items list
-		if fp.entries or self.old_items is None:
+		if new_items or self.old_items is None:
 			self.old_items = set()
 			for item in reversed(fp.entries):
 				self.old_items.add(self.guid(item))
@@ -380,6 +382,9 @@ class Feed:
 		# Update the last update time
 		self.etag = new_etag
 		self.modified = new_modified
+		
+		if new_items:
+			self.save()
 
 
 def setup(bot):
