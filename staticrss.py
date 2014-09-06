@@ -226,6 +226,13 @@ class Feed:
 	
 	def update_feed(self, bot):
 		
+		mtime = None
+		if self.url.find(':') == -1:
+			mtime = os.path.getmtime(self.url)
+			if self.modified and self.modified >= mtime:
+				Status = namedtuple('Status', 'status')
+				return Status(304)
+		
 		fp = feedparser.parse(self.url, etag=self.etag, modified=self.modified)
 		
 		# Check for malformed XML
@@ -235,6 +242,9 @@ class Feed:
 		# Check HTTP status
 		if getattr(fp, 'status', 200) == 410: # GONE
 			raise urllib2.HTTPError(self.url, 410, 'Gone.', { }, fp)
+		
+		if mtime:
+			setattr(fp, 'modified', mtime)
 		
 		return fp
 	
@@ -330,7 +340,7 @@ class Feed:
 			return True
 		
 		# fp.status will only exist if pulling from an online feed
-		status = getattr(fp, 'status', None)
+		status = getattr(fp, 'status', 200)
 		
 		self.backoff = 0
 		
