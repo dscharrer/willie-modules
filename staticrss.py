@@ -241,9 +241,9 @@ class Feed:
 	@staticmethod
 	def get_text(blob):
 		try:
-			return blob.get_text()
+			return blob.get_text().strip()
 		except:
-			return blob
+			return blob.strip()
 	
 	def update_soup(self, bot):
 		
