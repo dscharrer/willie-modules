@@ -347,11 +347,11 @@ class Feed:
 		# Check HTTP status
 		if status == 301 and hasattr(fp, 'href'): # MOVED_PERMANENTLY
 			bot.debug(__file__,
-				u'{0}: Got HTTP 301 (Moved Permanently), updating URI to {1}'.format(
+				u'{0}: status = 301 (Moved Permanently), updating URI to {1}'.format(
 				self.name, fp.href), 'warning')
 			self.url = fp.href
 		if status == 304: # NOT MODIFIED
-			bot.debug(__file__, u'{0}: Got HTTP 304 (Not Modified)'.format(self.name),
+			bot.debug(__file__, u'{0}: status = 304 (Not Modified)'.format(self.name),
 				self.debug)
 			return True
 		
