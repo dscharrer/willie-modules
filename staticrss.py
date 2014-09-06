@@ -238,6 +238,13 @@ class Feed:
 		
 		return fp
 	
+	@staticmethod
+	def get_text(blob):
+		try:
+			return blob.get_text()
+		except:
+			return blob
+	
 	def update_soup(self, bot):
 		
 		request = urllib2.Request(self.url)
@@ -269,13 +276,14 @@ class Feed:
 			entry = feedparser.FeedParserDict()
 			
 			if self.title_soup:
-				entry['title'] = eval(self.title_soup, {}, {"post" : post}).get_text().strip()
+				entry['title'] = self.get_text(eval(self.title_soup, {}, {"post" : post}))
 			
 			if self.link_soup:
-				entry['link'] = urlparse.urljoin(self.url, eval(self.link_soup, {}, {"post" : post}))
+				url = self.get_text(eval(self.link_soup, {}, {"post" : post}))
+				entry['link'] = urlparse.urljoin(self.url, url)
 			
 			if self.published_soup:
-				entry['published'] = eval(self.published_soup, {}, {"post" : post}).get_text().strip()
+				entry['published'] = self.get_text(eval(self.published_soup, {}, {"post" : post}))
 			
 			entries.append(entry)
 		
