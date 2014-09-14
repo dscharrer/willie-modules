@@ -375,19 +375,18 @@ class Feed:
 		if fp.entries and self.old_items is not None:
 			skipped = -self.max_items
 			for item in reversed(fp.entries):
-				if self.guid(item) in self.old_items:
+				guid = self.guid(item)
+				if guid in self.old_items:
 					continue
 				new_items = True
 				if 'published_parsed' in item:
 					new_time = time.mktime(item.published_parsed)
 					if new_time <= self.old_time:
 						bot.debug(__file__, u'{0}: Old ptime: {1} <= {2} "{3}"'.format(
-							self.name, new_time, self.old_time, self.guid(item)), 'warning')
+							self.name, new_time, self.old_time, guid), 'warning')
 						continue
 				if skipped < 0:
-					if new_time <= self.old_time:
-						bot.debug(__file__, u'{0}: New item: "{3}"'.format(
-							self.name, self.guid(item)), self.debug)
+					bot.debug(__file__, u'{0}: New item: "{3}"'.format(self.name, guid), self.debug)
 					self.new_item(bot, item)
 				skipped += 1
 			if skipped == 1:
@@ -464,7 +463,7 @@ def update_feeds(bot):
 	with data.lock:
 		
 		for i in [(i + data.next) % len(data.feeds) for i in range(len(data.feeds))]:
-			data.next = i  + 1
+			data.next = i + 1
 			if data.feeds[i].update(bot, INTERVAL):
 				return
 
