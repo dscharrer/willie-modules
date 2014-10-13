@@ -9,6 +9,7 @@ Reads lines according to the following format:
 """
 
 import os
+import socket
 import codecs
 import threading
 import traceback
@@ -26,16 +27,21 @@ class Pipe:
 		self.bot = bot
 		self.name = '(default)'
 		self.file = None
+		self.socket_file = None
+		self.buffer_file = None
 		self.exclude = set()
 		self.enable = set()
 		self.thread = None
 		self.running = True
+		self.listen_timeout = 5 * 60
 	
 	
 	def parse_config(self, section):
 		
 		if section.file:
 			self.file = section.file
+			self.socket_file = self.file + '/socket'
+			self.buffer_file = self.file + '/buffer'
 		
 		exclude = section.get_list('exclude')
 		if exclude:
@@ -48,7 +54,7 @@ class Pipe:
 	
 	def validate_config(self):
 		
-		if not self.file:
+		if not self.socket_file or not self.buffer_file:
 			raise ConfigurationError('Missing pipe file for pipe {0}'.format(self.name))
 	
 	
@@ -73,42 +79,127 @@ class Pipe:
 			self.warn(u'{0} is blacklisted'.format(recipient))
 			return
 		
-		self.bot.msg(recipient, message, 5)
+		try:
+			self.bot.msg(recipient, message, 5)
+		except Exception as e:
+			self.warn(u'error sending message: {0}'.format(traceback.format_exc(e)))
+			try:
+				buffer = codecs.open(self.buffer_file, 'a', encoding='utf-8')
+			except Exception as e:
+				self.warn(u'error opening buffer file for writing {0}: {1}'.format(
+					self.buffer_file, traceback.format_exc(e)))
+			try:
+				os.chmod(self.buffer_file, 0666)
+				buffer.write(line + '\n');
+			finally:
+				buffer.close()
+	
+	
+	def process_lines(self, stream, send = True):
+		
+		buffer = None
+		if not self.running:
+			try:
+				buffer = codecs.open(self.buffer_file, 'a', encoding='utf-8')
+				os.chmod(self.buffer_file, 0666)
+			except Exception as e:
+				self.warn(u'error opening buffer file for writing {0}: {1}'.format(
+					self.buffer_file, traceback.format_exc(e)))
+		
+		try:
+			
+			for line in stream:
+				try:
+					line = line.rstrip()
+					if line:
+						if buffer:
+							buffer.write(line + '\n');
+						else:
+							self.process_line(line)
+				except Exception as e:
+					line = "".join(i if ord(i) < 128 else '?' for i in line)
+					self.warn(u'bad line "{0}": {1}'.format(line, traceback.format_exc(e)))
+			
+		finally:
+			if buffer:
+				buffer.close();
+	
+	
+	def handle_connection(self, handle):
+		try:
+			connection, client_address = handle.accept()
+			try:
+				self.process_lines(connection.makefile())
+			except Exception as e:
+				self.warn(u'error reading from connection on socket {0}: {1}'.format(
+					self.socket_file, traceback.format_exc(e)))
+			finally:
+				connection.close()
+		except:
+			return False
+		return True
+	
+	
+	def flush_connections(self, handle):
+		handle.settimeout(0)
+		while True:
+			if not self.handle_connection(handle):
+				break
+	
+	
+	def clean(self):
+		if os.path.exists(self.socket_file):
+			try:
+				os.unlink(self.socket_file)
+			except Exception as e:
+				self.warn(u'cant remove stale socket file {0}: {1}'.format(
+					self.socket_file, traceback.format_exc(e)))
+				return
+	
 	
 	def run(self):
 		
-		try:
-			if not os.path.exists(self.file):
-				os.mkfifo(self.file)
-		except Exception as e:
-			self.warn(u'cant create pipe file {0}: {1}'.format(self.file, traceback.format_exc(e)))
-			return
+		# Remove existing socket files
+		self.clean()
 		
-		while self.running:
+		# Start listening on the unix domain socket
+		handle = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+		handle.bind(self.socket_file)
+		handle.listen(5)
+		try:
+			os.chmod(self.socket_file, 0666)
 			
-			try:
-				handle = codecs.open(self.file, 'r', encoding='utf-8')
-			except Exception as e:
-				self.warn(u'cant open pipe file {0}: {1}'.format(self.file, traceback.format_exc(e)))
-				handle.close()
-				return
-			
-			try:
+			first = True
+			while self.running:
+				if first:
+					first = False
 				
-				for line in handle:
+				# Proecess lines buffered while the socket was down
+				if os.path.exists(self.buffer_file):
 					try:
-						line = line.rstrip()
-						if line:
-							self.process_line(line)
+						buffer = open(self.buffer_file, 'r')
+						os.unlink(self.buffer_file)
+						if not first:
+							self.flush_connections(handle)
+						self.process_lines(buffer)
 					except Exception as e:
-						line = "".join(i if ord(i) < 128 else '?' for i in s)
-						self.warn(u'bad line "{0}": {1}'.format(line, traceback.format_exc(e)))
+						self.warn(u'error reading buffer file {0}: {1}'.format(
+							self.buffer_file, traceback.format_exc(e)))
+						pass
 				
-			except Exception as e:
-				self.warn(u'error reading file {0}: {1}'.format(self.file, traceback.format_exc(e)))
-				
-			finally:
-				handle.close()
+				# Wait for a connection
+				handle.settimeout(self.listen_timeout)
+				self.handle_connection(handle)
+			
+			# Stop accepting new connections (as best as possible)
+			self.clean()
+			handle.listen(0)
+			
+			# Process any existing connections before exitin
+			self.flush_connections(handle)
+			
+		finally:
+			handle.close()
 	
 	
 	def start(self):
@@ -121,7 +212,9 @@ class Pipe:
 	def stop(self):
 		# Signal the thread to exit
 		self.running = False
-		open(self.file, 'w').close()
+		handle = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+		handle.connect(self.socket_file)
+		handle.close()
 		# Wait for the thread to exit
 		self.thread.join()
 
