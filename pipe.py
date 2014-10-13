@@ -9,15 +9,14 @@ Reads lines according to the following format:
 """
 
 import os
+import time
 import socket
 import codecs
 import threading
 import traceback
 from copy import copy
+from willie.module import event, rule, priority
 from willie.config import ConfigurationError
-
-
-DEBUG = 'verbose'
 
 
 class Pipe:
@@ -159,6 +158,8 @@ class Pipe:
 	
 	def run(self):
 		
+		time.sleep(1)
+		
 		# Remove existing socket files
 		self.clean()
 		
@@ -210,6 +211,8 @@ class Pipe:
 		self.thread.start()
 	
 	def stop(self):
+		if self.thread is None:
+			return
 		# Signal the thread to exit
 		self.running = False
 		handle = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -247,11 +250,23 @@ def setup(bot):
 	
 	for pipe in pipes:
 		pipe.validate_config()
-		pipe.start()
-		bot.debug(__file__, 'Pipe {0}: {1}'.format(pipe.name, pipe.file), DEBUG)
 	
+	bot.memory['pipes_started'] = False
 	bot.memory['pipes'] = pipes
 
+@event('JOIN')
+@rule(r'.*')
+@priority('low')
+def connected(bot, trigger):
+	
+	if bot.memory['pipes_started']:
+		return
+	bot.memory['pipes_started'] = True
+	
+	for pipe in bot.memory['pipes']:
+		pipe.start()
+		bot.debug(__file__, 'Pipe {0}: {1} on +{2} -{3}'.format(pipe.name,
+			pipe.file, ' +'.join(pipe.enable), ' -'.join(pipe.exclude)), 'warning')
 
 def shutdown(bot):
 	
