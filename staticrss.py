@@ -228,6 +228,9 @@ class Feed:
 			guid += '#' + item.published
 		return unicode(guid.strip().replace('\n',' '))
 	
+	def agent(self, bot):
+		return u'{0}/1.0 ({1})'.format(bot.config.core.nick, bot.config.core.name)
+	
 	def update_feed(self, bot):
 		
 		mtime = None
@@ -237,7 +240,7 @@ class Feed:
 				Status = namedtuple('Status', 'status')
 				return Status(304)
 		
-		fp = feedparser.parse(self.url, etag=self.etag, modified=self.modified)
+		fp = feedparser.parse(self.url, etag=self.etag, modified=self.modified, agent=self.agent(bot))
 		
 		# Check for malformed XML
 		if fp.bozo and not isinstance(fp.bozo_exception, feedparser.CharacterEncodingOverride):
@@ -262,6 +265,8 @@ class Feed:
 	def update_soup(self, bot):
 		
 		request = urllib2.Request(self.url)
+		
+		request.add_header('User-Agent', self.agent(bot))
 		
 		if self.etag and not self.modified:
 			request.add_header('If-None-Match', self.etag)
