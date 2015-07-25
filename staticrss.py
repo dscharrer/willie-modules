@@ -169,7 +169,11 @@ class Feed:
 				handle.close()
 	
 	
-	def disable(self):
+	def disable(self, bot, message):
+		message = u'{0}: Can\'t parse feed, disabling: {1}'.format(self.name, message)
+		bot.debug(__file__, message, 'warning')
+		if self.backoff != 0:
+			bot.msg(bot.config.core.owner, message)
 		self.backoff += self.interval + (self.backoff / 10)
 	
 	
@@ -324,19 +328,13 @@ class Feed:
 			else:
 				fp = self.update_feed(bot)
 		except urllib2.HTTPError as e:
-			bot.debug(__file__, u'{0}: Can\'t parse feed, disabling ({1})'.format(
-				self.name, str(e)), 'warning')
-			self.disable()
+			self.disable(bot, str(e))
 			return True
 		except IOError as e:
-			bot.debug(__file__, u'{0}: Can\'t parse feed, disabling ({1})'.format(
-				self.name, str(e)), 'warning')
-			self.disable()
+			self.disable(bot, str(e))
 			return True
 		except Exception as e:
-			bot.debug(__file__, u'{0}: Can\'t parse feed, disabling: {1}'.format(
-				self.name, traceback.format_exc(e)), 'warning')
-			self.disable()
+			self.disable(bot, traceback.format_exc(e))
 			return True
 		
 		# fp.status will only exist if pulling from an online feed
