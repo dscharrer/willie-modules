@@ -196,7 +196,7 @@ class Pipe:
 			self.clean()
 			handle.listen(0)
 			
-			# Process any existing connections before exitin
+			# Process any existing connections before exiting
 			self.flush_connections(handle)
 			
 		finally:
