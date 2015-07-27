@@ -14,10 +14,14 @@ import socket
 import codecs
 import threading
 import traceback
+import logging
 from copy import copy
 from willie.module import event, rule, priority
 from willie.config import ConfigurationError
 
+
+logger = logging.getLogger('pipe')
+logger.setLevel(logging.INFO)
 
 class Pipe:
 	
@@ -58,7 +62,7 @@ class Pipe:
 	
 	
 	def warn(self, message):
-		self.bot.debug(__file__, u'Pipe {0}: {1}'.format(self.name, message), 'warning')
+		logger.warning(u'{0}: {1}'.format(self.name, message))
 	
 	
 	def process_line(self, line):
@@ -265,8 +269,8 @@ def connected(bot, trigger):
 	
 	for pipe in bot.memory['pipes']:
 		pipe.start()
-		bot.debug(__file__, 'Pipe {0}: {1} on +{2} -{3}'.format(pipe.name,
-			pipe.file, ' +'.join(pipe.enable), ' -'.join(pipe.exclude)), 'warning')
+		logger.info('{0}: {1} on +{2} -{3}'.format(pipe.name,
+			pipe.file, ' +'.join(pipe.enable), ' -'.join(pipe.exclude)))
 
 def shutdown(bot):
 	
