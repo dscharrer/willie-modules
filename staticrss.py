@@ -24,6 +24,7 @@ import urllib2
 import urlparse
 import traceback
 import codecs
+import logging
 from copy import copy
 from willie.module import interval
 from willie.config import ConfigurationError
@@ -36,6 +37,9 @@ socket.setdefaulttimeout(10)
 INTERVAL = 30 # seconds between checking for new updates
 MAX_LINE_LENGTH = 390
 
+logger = logging.getLogger('staticrss')
+logger.setLevel(logging.INFO)
+
 class DefaultErrorHandler(urllib2.HTTPDefaultErrorHandler):
 	def http_error_default(self, req, fp, code, msg, headers):
 		result = urllib2.HTTPError(req.get_full_url(), code, msg, headers, fp)
@@ -46,7 +50,6 @@ class Feed:
 	
 	
 	def __init__(self):
-		self.debug = 'verbose'
 		self.max_items = 5
 		self.name = '(default)'
 		self.url = None
@@ -71,9 +74,6 @@ class Feed:
 	
 	
 	def parse_config(self, section):
-		
-		if section.debug:
-			self.debug = section.debug
 		
 		if section.url:
 			self.url = section.url
@@ -171,7 +171,7 @@ class Feed:
 	
 	def disable(self, bot, message):
 		message = u'{0}: Can\'t parse feed, disabling: {1}'.format(self.name, message)
-		bot.debug(__file__, message, 'warning')
+		logger.warning(message)
 		if self.backoff != 0:
 			bot.msg(bot.config.core.owner, message)
 		self.backoff += self.interval + (self.backoff / 10)
@@ -349,29 +349,26 @@ class Feed:
 		
 		# Check HTTP status
 		if status == 301 and hasattr(fp, 'href'): # MOVED_PERMANENTLY
-			bot.debug(__file__,
-				u'{0}: status = 301 (Moved Permanently), updating URI to {1}'.format(
-				self.name, fp.href), 'warning')
+			logger.warning(u'{0}: status = 301 (Moved Permanently), updating URI to {1}'.format(
+				self.name, fp.href))
 			self.url = fp.href
 		if status == 304: # NOT MODIFIED
-			bot.debug(__file__, u'{0}: status = 304 (Not Modified)'.format(self.name),
-				self.debug)
+			logger.info(u'{0}: status = 304 (Not Modified)'.format(self.name))
 			return True
 		
 		# Check if anything changed
 		new_etag = fp.etag if hasattr(fp, 'etag') else None
 		if new_etag is not None and new_etag == self.etag:
-			bot.debug(__file__, u'{0}: Same etag: {1}'.format(self.name, new_etag), self.debug)
+			logger.info(u'{0}: Same etag: {1}'.format(self.name, new_etag))
 			return True
 		new_modified = fp.modified if hasattr(fp, 'modified') else None
 		if new_modified is not None and new_modified == self.modified:
-			bot.debug(__file__, u'{0}: Same modification time: {1}'.format(
-				self.name, new_modified), self.debug)
+			logger.info(u'{0}: Same modification time: {1}'.format(
+				self.name, new_modified))
 			return True
 		
-		bot.debug(__file__,
-			u'{0}: status = {1}, items = {2}, etag = {3}, time = {4}'.format(
-			self.name, status, len(fp.entries), new_etag, new_modified), self.debug)
+		logger.info(u'{0}: status = {1}, items = {2}, etag = {3}, time = {4}'.format(
+			self.name, status, len(fp.entries), new_etag, new_modified))
 		
 		# Check for new items
 		new_items = (self.old_items is None)
@@ -385,11 +382,11 @@ class Feed:
 				if 'published_parsed' in item:
 					new_time = time.mktime(item.published_parsed)
 					if new_time <= self.old_time:
-						bot.debug(__file__, u'{0}: Old ptime: {1} <= {2} "{3}"'.format(
-							self.name, new_time, self.old_time, guid), 'warning')
+						logger.warning(u'{0}: Old ptime: {1} <= {2} "{3}"'.format(
+							self.name, new_time, self.old_time, guid))
 						continue
 				if skipped < 0:
-					bot.debug(__file__, u'{0}: New item: "{1}"'.format(self.name, guid), self.debug)
+					logger.info(u'{0}: New item: "{1}"'.format(self.name, guid))
 					self.new_item(bot, item)
 				skipped += 1
 			if skipped == 1:
@@ -449,11 +446,10 @@ def setup(bot):
 	
 	for feed in feeds:
 		feed.load()
-		bot.debug(__file__, u'{0}: {1} {2} @{3} #={4} >={5}'.format(
+		logger.info(u'{0}: {1} {2} @{3} #={4} >={5}'.format(
 			u'Soup' if feed.soup else u'Feed',
 			feed.name, feed.url, feed.interval,
-			len(feed.old_items) if feed.old_items is not None else None, feed.old_time),
-			feed.debug)
+			len(feed.old_items) if feed.old_items is not None else None, feed.old_time))
 	
 	bot.memory['staticrss'] = Feeds(feeds)
 
@@ -481,5 +477,5 @@ def shutdown(bot):
 			try:
 				feed.save()
 			except Exception as e:
-				bot.debug(__file__, '{0}: Can\'t save feed state: {1}'.format(
-					feed.name, traceback.format_exc(e)), 'warning')
+				logger.warning('{0}: Can\'t save feed state: {1}'.format(
+					feed.name, traceback.format_exc(e)))
