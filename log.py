@@ -12,11 +12,15 @@ import re
 import codecs
 import threading
 import traceback
+import logging
 from types import MethodType
 from willie.module import event, rule, priority
 from willie.tools import Identifier
 from willie.config import ConfigurationError
 
+
+logger = logging.getLogger('pipe')
+logger.setLevel(logging.INFO)
 
 def configure(config):
 	"""
@@ -65,20 +69,20 @@ class Logger:
 		path = basepath + time.strftime('%Y', timestamp)
 		if not os.path.isdir(path):
 			try:
-				bot.debug(__file__, u'Creating log directory {0}'.format(path), 'verbose')
+				logger.debug(u'Creating log directory {0}'.format(path))
 				os.makedirs(path)
 			except Exception as e:
-				bot.debug(__file__, u'Cant create log directory {0}'.format(path), 'warning')
+				logger.warning(u'Cant create log directory {0}'.format(path))
 				self.exclude.append(channel)
 				return
 		
 		filename = path + '/' + channel + '.' + date + '.log'
 		logfile = None
 		try:
-			bot.debug(__file__, u'Opening log file {0}'.format(filename), 'verbose')
+			logger.debug(u'Opening log file {0}'.format(filename))
 			logfile = codecs.open(filename, 'a', encoding='utf-8')
 		except Exception as e:
-			bot.debug(__file__, u'Cant open log file {0}'.format(filename), 'warning')
+			logger.warning(u'Cant open log file {0}'.format(filename))
 		
 		try:
 			today = basepath + "today.log"
@@ -91,8 +95,7 @@ class Logger:
 					os.rename(today, yesterday)
 				os.symlink(target, today)
 		except Exception as e:
-			bot.debug(__file__, u'Cant update symlinks for {0}: {1}'.format(filename, str(e)),
-				'warning')
+			logger.warning(u'Cant update symlinks for {0}: {1}'.format(filename, str(e)))
 		
 		self.files[channel] = Logfile(date, logfile)
 		return logfile
@@ -155,7 +158,7 @@ def setup(bot):
 		raise ConfigurationError('missing path in log config section')
 	if not os.path.isdir(bot.config.log.path):
 		try:
-			bot.debug(__file__, u'Creating log directory {0}'.format(bot.config.log.path), 'verbose')
+			logger.debug(u'Creating log directory {0}'.format(bot.config.log.path))
 			os.makedirs(bot.config.log.path)
 		except Exception as e:
 			raise
@@ -278,7 +281,9 @@ def action_message(msg):
 @priority('high') # so it comes before messages that result from it
 def on_msg(bot, trigger):
 	"""Log a user sending a message to a channel."""
-	if is_action(trigger):
+	if hasattr(trigger, 'tags') and trigger.tags.get('intent') == 'ACTION':
+		log(bot, trigger.sender, '* {} {}', trigger.nick, trigger);
+	elif is_action(trigger):
 		log(bot, trigger.sender, '* {} {}', trigger.nick, action_message(trigger));
 	else:
 		log(bot, trigger.sender, '<{}> {}', trigger.nick, trigger);
