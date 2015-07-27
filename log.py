@@ -14,7 +14,7 @@ import threading
 import traceback
 from types import MethodType
 from willie.module import event, rule, priority
-from willie.tools import Nick
+from willie.tools import Identifier
 from willie.config import ConfigurationError
 
 
@@ -222,7 +222,7 @@ def on_kick(bot, trigger):
 def on_nick_change(bot, trigger):
 	"""Log a nick change."""
 	old_nick = trigger.nick
-	new_nick = Nick(trigger.args[0])
+	new_nick = Identifier(trigger.args[0])
 	for channel in bot.privileges:
 		if new_nick in bot.privileges[channel]:
 			log(bot, channel, '*** {} is now known as {}', old_nick, new_nick);
@@ -246,7 +246,7 @@ def on_mode_change(bot, trigger):
 	if trigger.args[0][0] != '#' or not trigger.args[1:]:
 		return
 	channel, mode_sec = trigger.args[:2]
-	nicks = [Nick(n) for n in trigger.args[2:]]
+	nicks = [Identifier(n) for n in trigger.args[2:]]
 	log(bot, channel, '*** {} sets mode: {} {}', trigger.nick or trigger.host, mode_sec,
 	    ' '.join(nicks));
 
